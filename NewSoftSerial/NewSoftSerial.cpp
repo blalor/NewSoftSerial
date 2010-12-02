@@ -189,6 +189,8 @@ inline void NewSoftSerial::tunedDelay(uint16_t delay) {
 // one and returns true if it replaces another 
 bool NewSoftSerial::activate(void)
 {
+  if (! _rx_disabled)
+  {
   if (active_object != this)
   {
     _buffer_overflow = false;
@@ -198,6 +200,7 @@ bool NewSoftSerial::activate(void)
     active_object = this;
     SREG = oldSREG;
     return true;
+  }
   }
 
   return false;
@@ -343,16 +346,20 @@ ISR(PCINT3_vect)
 //
 // Constructor
 //
-NewSoftSerial::NewSoftSerial(uint8_t receivePin, uint8_t transmitPin, bool inverse_logic /* = false */) : 
+NewSoftSerial::NewSoftSerial(uint8_t receivePin, uint8_t transmitPin, bool inverse_logic /* = false */, bool disable_rx /* = false */) : 
   _rx_delay_centering(0),
   _rx_delay_intrabit(0),
   _rx_delay_stopbit(0),
   _tx_delay(0),
   _buffer_overflow(false),
-  _inverse_logic(inverse_logic)
+  _inverse_logic(inverse_logic),
+  _rx_disabled(disable_rx)
 {
   setTX(transmitPin);
+  
+  if (! _rx_disabled) { 
   setRX(receivePin);
+}
 }
 
 //

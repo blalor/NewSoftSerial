@@ -456,7 +456,7 @@ int NewSoftSerial::read(void)
   return d;
 }
 
-uint8_t NewSoftSerial::available(void)
+unsigned int NewSoftSerial::available(void)
 {
   // A newly activated object never has any rx data
   if (activate())
@@ -543,4 +543,36 @@ void NewSoftSerial::flush()
     _receive_buffer_head = _receive_buffer_tail = 0;
     SREG = oldSREG;
   }
+}
+
+int NewSoftSerial::peek(void)
+{
+    return peek(0);
+}
+
+int NewSoftSerial::peek(uint8_t offset)
+{
+  // A newly activated object never has any rx data
+  if (activate())
+    return -1;
+
+  // Empty buffer?
+  if (_receive_buffer_head == _receive_buffer_tail)
+    return -1;
+
+  // Read from "head" plus an offset
+  return _receive_buffer[(_receive_buffer_head + (offset + 1)) % _NewSS_MAX_RX_BUFF];
+}
+
+void NewSoftSerial::remove(uint8_t count)
+{
+  // A newly activated object never has any rx data
+  if (activate())
+    return;
+
+  // Empty buffer?
+  if (_receive_buffer_head == _receive_buffer_tail)
+    return;
+
+  _receive_buffer_head = (_receive_buffer_head + (count + 1)) % _NewSS_MAX_RX_BUFF;
 }

@@ -29,7 +29,7 @@ http://arduiniana.org.
 #define NewSoftSerial_h
 
 #include <inttypes.h>
-#include "Print.h"
+#include "Stream.h"
 
 /******************************************************************************
 * Definitions
@@ -41,7 +41,7 @@ http://arduiniana.org.
 #define GCC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
 #endif
 
-class NewSoftSerial : public Print
+class NewSoftSerial : public Stream
 {
 private:
   // per object data
@@ -69,7 +69,7 @@ private:
   // private methods
   void recv();
   bool activate();
-  virtual void write(uint8_t byte);
+  void write(uint8_t byte);
   uint8_t rx_pin_read();
   void tx_pin_write(uint8_t pin_state);
   void setTX(uint8_t transmitPin);
@@ -85,12 +85,16 @@ public:
   void begin(long speed);
   void end();
   int read();
-  uint8_t available(void);
+  unsigned int available(void);
   bool active() { return this == active_object; }
   bool overflow() { bool ret = _buffer_overflow; _buffer_overflow = false; return ret; }
   static int library_version() { return _NewSS_VERSION; }
   static void enable_timer0(bool enable);
   void flush();
+  
+  int peek();
+  int peek(uint8_t);
+  void remove(uint8_t);
 
   // public only for easy access by interrupt handlers
   static inline void handle_interrupt();

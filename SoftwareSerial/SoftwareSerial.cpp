@@ -1,11 +1,15 @@
 /*
-NewSoftSerial.cpp - Multi-instance software serial library
-Copyright (c) 2006 David A. Mellis.  All rights reserved.
+SoftwareSerial.cpp (formerly NewSoftSerial.cpp) - 
+Multi-instance software serial library for Arduino/Wiring
 -- Interrupt-driven receive and other improvements by ladyada
--- Tuning, circular buffer, derivation from class Print,
+   (http://ladyada.net)
+-- Tuning, circular buffer, derivation from class Print/Stream,
    multi-instance support, porting to 8MHz processors,
    various optimizations, PROGMEM delay tables, inverse logic and 
-   direct port writing by Mikal Hart
+   direct port writing by Mikal Hart (http://www.arduiniana.org)
+-- Pin change interrupt macros by Paul Stoffregen (http://www.pjrc.com)
+-- 20MHz processor support by Garrett Mace (http://www.macetech.com)
+-- ATmega1280/2560 support by Brett Hagman (http://www.roguerobotics.com/)
 
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
@@ -38,24 +42,8 @@ http://arduiniana.org.
 #include <avr/pgmspace.h>
 #include "WConstants.h"
 #include "pins_arduino.h"
-#include "NewSoftSerial.h"
-
-// Abstractions for maximum portability between processors
-// These are macros to associate pins to pin change interrupts
-#if !defined(digitalPinToPCICR) // Courtesy Paul Stoffregen
-#if defined(__AVR_ATmega168__) || defined(__AVR_ATmega328P__)
-#define digitalPinToPCICR(p)    (((p) >= 0 && (p) <= 21) ? (&PCICR) : ((uint8_t *)NULL))
-#define digitalPinToPCICRbit(p) (((p) <= 7) ? 2 : (((p) <= 13) ? 0 : 1))
-#define digitalPinToPCMSK(p)    (((p) <= 7) ? (&PCMSK2) : (((p) <= 13) ? (&PCMSK0) : (((p) <= 21) ? (&PCMSK1) : ((uint8_t *)NULL))))
-#define digitalPinToPCMSKbit(p) (((p) <= 7) ? (p) : (((p) <= 13) ? ((p) - 8) : ((p) - 14)))
-#else
-#define digitalPinToPCICR(p)    ((uint8_t *)NULL)
-#define digitalPinToPCICRbit(p) 0
-#define digitalPinToPCMSK(p)    ((uint8_t *)NULL)
-#define digitalPinToPCMSKbit(p) 0
-#endif
-#endif
-
+#include "SoftwareSerial.h"
+#include "icrmacros.h"
 //
 // Lookup table
 //
@@ -136,17 +124,17 @@ const int XMIT_START_ADJUSTMENT = 6;
 
 #else
 
-#error This version of NewSoftSerial supports only 20, 16 and 8MHz processors
+#error This version of SoftwareSerial supports only 20, 16 and 8MHz processors
 
 #endif
 
 //
 // Statics
 //
-NewSoftSerial *NewSoftSerial::active_object = 0;
-char NewSoftSerial::_receive_buffer[_NewSS_MAX_RX_BUFF]; 
-volatile uint8_t NewSoftSerial::_receive_buffer_tail = 0;
-volatile uint8_t NewSoftSerial::_receive_buffer_head = 0;
+SoftwareSerial *SoftwareSerial::active_object = 0;
+char SoftwareSerial::_receive_buffer[_SS_MAX_RX_BUFF]; 
+volatile uint8_t SoftwareSerial::_receive_buffer_tail = 0;
+volatile uint8_t SoftwareSerial::_receive_buffer_head = 0;
 
 //
 // Debugging
@@ -172,7 +160,7 @@ inline void DebugPulse(uint8_t pin, uint8_t count)
 //
 
 /* static */ 
-inline void NewSoftSerial::tunedDelay(uint16_t delay) { 
+inline void SoftwareSerial::tunedDelay(uint16_t delay) { 
   uint8_t tmp=0;
 
   asm volatile("sbiw    %0, 0x01 \n\t"
@@ -185,9 +173,9 @@ inline void NewSoftSerial::tunedDelay(uint16_t delay) {
     );
 }
 
-// This function sets the current object as the "active"
+// This function sets the current object as the "listening"
 // one and returns true if it replaces another 
-bool NewSoftSerial::activate(void)
+bool SoftwareSerial::listen()
 {
   if (! _rx_disabled)
   {
@@ -209,7 +197,7 @@ bool NewSoftSerial::activate(void)
 //
 // The receive routine called by the interrupt handler
 //
-void NewSoftSerial::recv()
+void SoftwareSerial::recv()
 {
 
 #if GCC_VERSION < 40302
@@ -258,11 +246,11 @@ void NewSoftSerial::recv()
       d = ~d;
 
     // if buffer full, set the overflow flag and return
-    if ((_receive_buffer_tail + 1) % _NewSS_MAX_RX_BUFF != _receive_buffer_head) 
+    if ((_receive_buffer_tail + 1) % _SS_MAX_RX_BUFF != _receive_buffer_head) 
     {
       // save new data in buffer: tail points to where byte goes
       _receive_buffer[_receive_buffer_tail] = d; // save new byte
-      _receive_buffer_tail = (_receive_buffer_tail + 1) % _NewSS_MAX_RX_BUFF;
+      _receive_buffer_tail = (_receive_buffer_tail + 1) % _SS_MAX_RX_BUFF;
     } 
     else 
     {
@@ -289,7 +277,7 @@ void NewSoftSerial::recv()
 #endif
 }
 
-void NewSoftSerial::tx_pin_write(uint8_t pin_state)
+void SoftwareSerial::tx_pin_write(uint8_t pin_state)
 {
   if (pin_state == LOW)
     *_transmitPortRegister &= ~_transmitBitMask;
@@ -297,7 +285,7 @@ void NewSoftSerial::tx_pin_write(uint8_t pin_state)
     *_transmitPortRegister |= _transmitBitMask;
 }
 
-uint8_t NewSoftSerial::rx_pin_read()
+uint8_t SoftwareSerial::rx_pin_read()
 {
   return *_receivePortRegister & _receiveBitMask;
 }
@@ -307,7 +295,7 @@ uint8_t NewSoftSerial::rx_pin_read()
 //
 
 /* static */
-inline void NewSoftSerial::handle_interrupt()
+inline void SoftwareSerial::handle_interrupt()
 {
   if (active_object)
   {
@@ -318,39 +306,39 @@ inline void NewSoftSerial::handle_interrupt()
 #if defined(PCINT0_vect)
 ISR(PCINT0_vect)
 {
-  NewSoftSerial::handle_interrupt();
+  SoftwareSerial::handle_interrupt();
 }
 #endif
 
 #if defined(PCINT1_vect)
 ISR(PCINT1_vect)
 {
-  NewSoftSerial::handle_interrupt();
+  SoftwareSerial::handle_interrupt();
 }
 #endif
 
 #if defined(PCINT2_vect)
 ISR(PCINT2_vect)
 {
-  NewSoftSerial::handle_interrupt();
+  SoftwareSerial::handle_interrupt();
 }
 #endif
 
 #if defined(PCINT3_vect)
 ISR(PCINT3_vect)
 {
-  NewSoftSerial::handle_interrupt();
+  SoftwareSerial::handle_interrupt();
 }
 #endif
 
 //
 // Constructor
 //
-NewSoftSerial::NewSoftSerial(uint8_t receivePin,
-                             uint8_t transmitPin,
-                             bool inverse_logic /* = false */,
-                             bool disable_rx /* = false */,
-                             bool disable_pullup /* = false */): 
+SoftwareSerial::SoftwareSerial(uint8_t receivePin,
+                               uint8_t transmitPin,
+                               bool inverse_logic /* = false */,
+                               bool disable_rx /* = false */,
+                               bool disable_pullup /* = false */): 
   _rx_delay_centering(0),
   _rx_delay_intrabit(0),
   _rx_delay_stopbit(0),
@@ -370,12 +358,12 @@ NewSoftSerial::NewSoftSerial(uint8_t receivePin,
 //
 // Destructor
 //
-NewSoftSerial::~NewSoftSerial()
+SoftwareSerial::~SoftwareSerial()
 {
   end();
 }
 
-void NewSoftSerial::setTX(uint8_t tx)
+void SoftwareSerial::setTX(uint8_t tx)
 {
   pinMode(tx, OUTPUT);
   digitalWrite(tx, HIGH);
@@ -384,7 +372,7 @@ void NewSoftSerial::setTX(uint8_t tx)
   _transmitPortRegister = portOutputRegister(port);
 }
 
-void NewSoftSerial::setRX(uint8_t rx)
+void SoftwareSerial::setRX(uint8_t rx)
 {
   pinMode(rx, INPUT);
   if ((! _inverse_logic) && (! _disable_pullup)) {
@@ -401,7 +389,7 @@ void NewSoftSerial::setRX(uint8_t rx)
 // Public methods
 //
 
-void NewSoftSerial::begin(long speed)
+void SoftwareSerial::begin(long speed)
 {
   _rx_delay_centering = _rx_delay_intrabit = _rx_delay_stopbit = _tx_delay = 0;
 
@@ -434,10 +422,10 @@ void NewSoftSerial::begin(long speed)
   pinMode(_DEBUG_PIN2, OUTPUT);
 #endif
 
-  activate();
+  listen();
 }
 
-void NewSoftSerial::end()
+void SoftwareSerial::end()
 {
   if (digitalPinToPCMSK(_receivePin))
     *digitalPinToPCMSK(_receivePin) &= ~_BV(digitalPinToPCMSKbit(_receivePin));
@@ -445,12 +433,9 @@ void NewSoftSerial::end()
 
 
 // Read data from buffer
-int NewSoftSerial::read(void)
+int SoftwareSerial::read()
 {
-  uint8_t d;
-
-  // A newly activated object never has any rx data
-  if (activate())
+  if (!is_listening())
     return -1;
 
   // Empty buffer?
@@ -458,26 +443,23 @@ int NewSoftSerial::read(void)
     return -1;
 
   // Read from "head"
-  d = _receive_buffer[_receive_buffer_head]; // grab next byte
-  _receive_buffer_head = (_receive_buffer_head + 1) % _NewSS_MAX_RX_BUFF;
+  uint8_t d = _receive_buffer[_receive_buffer_head]; // grab next byte
+  _receive_buffer_head = (_receive_buffer_head + 1) % _SS_MAX_RX_BUFF;
   return d;
 }
 
-unsigned int NewSoftSerial::available(void)
+unsigned int SoftwareSerial::available()
 {
-  // A newly activated object never has any rx data
-  if (activate())
+  if (!is_listening())
     return 0;
 
-  return (_receive_buffer_tail + _NewSS_MAX_RX_BUFF - _receive_buffer_head) % _NewSS_MAX_RX_BUFF;
+  return (_receive_buffer_tail + _SS_MAX_RX_BUFF - _receive_buffer_head) % _SS_MAX_RX_BUFF;
 }
 
-void NewSoftSerial::write(uint8_t b)
+void SoftwareSerial::write(uint8_t b)
 {
   if (_tx_delay == 0)
     return;
-
-  activate();
 
   uint8_t oldSREG = SREG;
   cli();  // turn off interrupts for a clean txmit
@@ -525,7 +507,7 @@ void NewSoftSerial::write(uint8_t b)
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
 #endif
 
-void NewSoftSerial::enable_timer0(bool enable) 
+void SoftwareSerial::enable_timer0(bool enable) 
 {
   if (enable)
 #if defined(__AVR_ATmega8__)
@@ -541,26 +523,25 @@ void NewSoftSerial::enable_timer0(bool enable)
 #endif
 }
 
-void NewSoftSerial::flush()
+void SoftwareSerial::flush()
 {
-  if (active_object == this)
-  {
-    uint8_t oldSREG = SREG;
-    cli();
-    _receive_buffer_head = _receive_buffer_tail = 0;
-    SREG = oldSREG;
-  }
+  if (!is_listening())
+    return;
+
+  uint8_t oldSREG = SREG;
+  cli();
+  _receive_buffer_head = _receive_buffer_tail = 0;
+  SREG = oldSREG;
 }
 
-int NewSoftSerial::peek(void)
+int SoftwareSerial::peek()
 {
     return peek(0);
 }
 
-int NewSoftSerial::peek(uint8_t offset)
+int SoftwareSerial::peek(uint8_t offset)
 {
-  // A newly activated object never has any rx data
-  if (activate())
+  if (!is_listening())
     return -1;
 
   // Empty buffer?
@@ -568,18 +549,18 @@ int NewSoftSerial::peek(uint8_t offset)
     return -1;
 
   // Read from "head" plus an offset
-  return _receive_buffer[(_receive_buffer_head + offset) % _NewSS_MAX_RX_BUFF];
+  return _receive_buffer[(_receive_buffer_head + offset) % _SS_MAX_RX_BUFF];
 }
 
-void NewSoftSerial::remove(uint8_t count)
+void SoftwareSerial::remove(uint8_t count)
 {
   // A newly activated object never has any rx data
-  if (activate())
+  if (!is_listening())
     return;
 
   // Empty buffer?
   if (_receive_buffer_head == _receive_buffer_tail)
     return;
 
-  _receive_buffer_head = (_receive_buffer_head + (count + 1)) % _NewSS_MAX_RX_BUFF;
+  _receive_buffer_head = (_receive_buffer_head + (count + 1)) % _SS_MAX_RX_BUFF;
 }

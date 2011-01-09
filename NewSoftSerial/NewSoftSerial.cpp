@@ -346,14 +346,19 @@ ISR(PCINT3_vect)
 //
 // Constructor
 //
-NewSoftSerial::NewSoftSerial(uint8_t receivePin, uint8_t transmitPin, bool inverse_logic /* = false */, bool disable_rx /* = false */) : 
+NewSoftSerial::NewSoftSerial(uint8_t receivePin,
+                             uint8_t transmitPin,
+                             bool inverse_logic /* = false */,
+                             bool disable_rx /* = false */,
+                             bool disable_pullup /* = false */): 
   _rx_delay_centering(0),
   _rx_delay_intrabit(0),
   _rx_delay_stopbit(0),
   _tx_delay(0),
   _buffer_overflow(false),
   _inverse_logic(inverse_logic),
-  _rx_disabled(disable_rx)
+  _rx_disabled(disable_rx),
+  _disable_pullup(disable_pullup)
 {
   setTX(transmitPin);
   
@@ -382,8 +387,10 @@ void NewSoftSerial::setTX(uint8_t tx)
 void NewSoftSerial::setRX(uint8_t rx)
 {
   pinMode(rx, INPUT);
-  if (!_inverse_logic)
-    digitalWrite(rx, HIGH);  // pullup for normal logic!
+  if ((! _inverse_logic) && (! _disable_pullup)) {
+      digitalWrite(rx, HIGH);  // pullup for normal logic!
+  }
+
   _receivePin = rx;
   _receiveBitMask = digitalPinToBitMask(rx);
   uint8_t port = digitalPinToPort(rx);
@@ -561,7 +568,7 @@ int NewSoftSerial::peek(uint8_t offset)
     return -1;
 
   // Read from "head" plus an offset
-  return _receive_buffer[(_receive_buffer_head + (offset + 1)) % _NewSS_MAX_RX_BUFF];
+  return _receive_buffer[(_receive_buffer_head + offset) % _NewSS_MAX_RX_BUFF];
 }
 
 void NewSoftSerial::remove(uint8_t count)

@@ -56,7 +56,8 @@ private:
   uint16_t _rx_delay_stopbit;
   uint16_t _tx_delay;
   bool _rx_disabled;
-
+  bool _disable_pullup;
+  
   uint16_t _buffer_overflow:1;
   uint16_t _inverse_logic:1;
 
@@ -80,7 +81,11 @@ private:
 
 public:
   // public methods
-  NewSoftSerial(uint8_t receivePin, uint8_t transmitPin, bool inverse_logic = false, bool disable_rx = false);
+  NewSoftSerial(uint8_t receivePin,
+                uint8_t transmitPin,
+                bool inverse_logic = false,
+                bool disable_rx = false,
+                bool disable_pullup = false);
   ~NewSoftSerial();
   void begin(long speed);
   void end();
